@@ -1,0 +1,216 @@
+$$
+$$ ** HEADER BEGIN **
+$$
+$$ ** File: windbg_handle_drivername.wds
+$$
+$$ ** Author: Aleksandar Milenkoski (amilenkoski@ernw.de)
+$$
+$$ ** Usage: [function breakpoint] "$$>a<[path_to_script_file] [address]"
+$$ [function breakpoint]: a breakpoint to a single or multiple *DeviceIoControlFile functions (e.g., 'bu ntdll!NtDeviceIoControlFile', bm /a nt!*DeviceIoControlFile)
+$$ [path_to_script_file]: path to this script file
+$$ [address]: the address of the EPROCESS structure of the kernel System thread. It can be obtained by issuing '!process 4 0'
+$$
+$$ ** Test environment: Windows 10, 64 bit, LTSB, build 1607
+$$
+$$ ** Description: This script prints out relevant information on the driver to which data has been sent by using a *DeviceIoControlFile routine (i.e., by sending an IRP). 
+$$ This information includes: 
+$$      (i)   the name and command parameters on the user process (if any) sending data to the driver (field 'Image/Command' of script output)
+$$      (ii)  the PID of the user process (if any) sending data to the driver (field 'PID' of script output)
+$$      (iii) the object name of the driver (field 'Driver' of script output)
+$$      (iv)  the device stack associated with the device object representing the driver (field 'Device stack' of script output)
+$$
+$$ ** License:
+$$  windbg_handle_drivername.wds
+$$  Copyright (C) 2017  Aleksandar Milenkoski
+$$
+$$  This program is free software; you can redistribute it and/or modify
+$$  it under the terms of the GNU General Public License as published by
+$$  the Free Software Foundation; either version 2 of the License, or
+$$  (at your option) any later version.
+$$
+$$  This program is distributed in the hope that it will be useful,
+$$  but WITHOUT ANY WARRANTY; without even the implied warranty of
+$$  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+$$  GNU General Public License for more details.
+$$
+$$  You should have received a copy of the GNU General Public License along
+$$  with this program; if not, write to the Free Software Foundation, Inc.,
+$$  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+$$
+$$ ** HEADER END **
+$$
+
+$$
+$$ ** SCRIPT BEGIN **
+$$
+$$ The handle is stored in the rcx register, the first parameter of a *DeviceIoControlFile function
+$$ Clearing the last 2 bits of the handle, they are tags
+$$
+r? $t18 = @rcx & 0xfffffffffffffffc
+
+$$
+$$ Obtaining the process' ObjectTable (i.e., handle table) depending on whether the handle is a kernel or a user-process handle
+$$ 64-bit Windows uses 32-bit handles. Kernel handles have the MSB (i.e., the 31-st bit) set
+$$
+.if ( (@$t18 & 0x80000000) == 0x80000000)
+{
+	$$
+	$$ If the handle is a kernel handle, get the handle table of the System thread
+	$$ The EPROCESS address of the System thread is the first script parameter
+	$$
+	r? $t0 = ((_EPROCESS*)${$arg1})->ObjectTable
+}
+.else
+{
+	$$
+	$$ If the handle is a user-process handle, get the handle table of the current process
+	$$
+	r? $t0 = @$proc->ObjectTable
+}
+
+$$
+$$ Obtaining the TableCode from the handle table
+$$
+r? $t1 = @$t0->TableCode
+
+$$
+$$ Extracting the handle table level (0, 1 or 2) from TableCode
+$$ The handle table level is stored in the last 2 bits of TableCode
+$$
+r? $t19 = @$t1 & 0x3
+
+$$
+$$ Extracting the handle table base from TableCode (i.e., clearing the bits indicating the handle table level)
+$$
+r? $t1 = @$t1 & (~0x3)
+
+$$
+$$ Processing a level-0 handle table
+$$
+.if (@$t19 == 0)
+{
+	$$
+    $$ Obtaining the handle table entry (nt!_HANDLE_TABLE_ENTRY)
+    $$ $$ The index for a level-0 handle table entry are bits 2-9 of the handle value
+    $$ $$ Adding 4 * (level-0 index) to the handle table base to obtain the handle table entry
+	$$
+	r? $t3 = @$t1 + (4*(@$t18&0x3fc))	
+}
+
+$$
+$$ Processing a level-1 handle table
+$$
+.if (@$t19 == 1)
+{
+
+	$$
+    $$ Obtaining the handle table entry
+    $$ $$ The index for a level-1 handle table entry are bits 17-10 of the handle value
+    $$ $$ Adding (ptrsize * (level-1 index)) to the handle table base to obtain the address of the base of a level-0 handle table, and then
+    $$ $$ obtaining the actual handle table entry as described above
+    $$ $$ multiplying and shifting only to mark the bit assignment for level-1 index 
+	$$ $$ $$ ptrsize is 8 on 64-bit systems
+	$$ $$ 
+	$$
+	r? $t3 = ((unsigned int64*)(@$t1 + @$ptrsize*(((@$t18&0x3fc00))>>10)))[0] + 4*((@$t18&0x3fc))
+}
+
+
+$$
+$$ Processing a level-2 handle table
+$$
+.if (@$t19 == 2)
+{
+
+	$$
+    $$ Obtaining the handle table entry
+    $$ $$ The index for a level-2 handle table entry are bits 25-18 of the handle value
+    $$ $$ Adding (ptrsize * (level-2 index)) to the handle table base to obtain the address of the base of a level-1 handle table, and then
+    $$ $$ obtaining the actual handle table entry as described above
+    $$ $$ multiplying and shifting only to mark the index bit assignment for level-2 index 
+	$$ $$ $$ ptrsize is 8 on 64-bit systems
+	$$ $$ 
+	$$
+	r? $t17 = ((unsigned int64*)(@$t1 + @$ptrsize*(((@$t18&0x3fc0000))>>18)))[0]
+	r? $t3 = ((unsigned int64*)(@$t17 - 0x1 + @$ptrsize*(((@$t18&0x3fc00))>>10)))[0] + 4*((@$t18&0x3fc))
+}
+
+$$
+$$ Obtaining the name of the driver object pointed by the handle
+$$ $$ Extracting the address of the Object header structure from the ObjectPointerBits field of the handle table entry structure
+$$ $$ 45 bits from ObjectPointerBits refer to the Object header - the leading 16 bits are assumed to be all 1's, the bottom four all 0's
+$$ $$ the ObjectPointerBits field is at offset 0x0 of a nt!_HANDLE_TABLE_ENTRY structure
+$$
+r? $t4 = (((_HANDLE_TABLE_ENTRY*)@$t3) -> ObjectPointerBits << 4) | 0xffff000000000000
+
+$$
+$$ Obtaining the driver object (nt!_DRIVER_OBJECT) by traversing through the structures' layout as follows
+$$
+
+$$
+$$ Accessing the File object (nt!_FILE_OBJECT), stored as the body of the object owning the handle
+$$
+r? $t4 = @$t4 + 0x30
+
+$$
+$$ Accessing the Device Object (nt!_DEVICE_OBJECT)
+$$
+r? $t5 = ((_FILE_OBJECT*)@$t4) -> DeviceObject
+
+$$
+$$ Accessing the Driver Object (nt!_DRIVER_OBJECT)
+$$
+r? $t6 = ((_DEVICE_OBJECT*)@$t5) -> DriverObject
+
+$$
+$$ Obtaining the address of the DriverName structure (nt!_UNICODE_STRING, a field of nt!_DRIVER_OBJECT)
+$$
+r? $t7 = (unsigned int64)@$t6 + 0x38
+
+$$
+$$ Obtaining the Buffer field of the DriverName structure
+$$
+r $t8 = poi(@$t7 + 0x008)  
+
+$$
+$$ Printing out relevant information
+$$ 
+
+$$
+$$ If the handle is a kernel handle
+$$ $$ Printing out the object name of the driver pointed by the handle 
+$$ $$ Printing out the device stack associated with the driver device to which an IRP has been sent
+$$
+
+$$
+$$ If the handle is a user-process handle
+$$ $$ Printing out the name and command parameters on the user process sending data to the driver 
+$$ $$ Printing out the PID of the user process sending data to the driver 
+$$ $$ Printing out the object name of the driver pointed by the handle 
+$$ $$ Printing out the device stack associated with the driver device to which an IRP has been sent
+$$
+
+.if ( (@$t18 & 0x80000000) == 0x80000000)
+{
+	.printf "****************\n";
+	.printf "Image/Command: Kernel\n"
+	.printf "Driver associated to IRP-ed device: %mu\n", @$t8
+	!devstack @$t5
+	.printf "****************\n";
+}
+
+.else
+{
+	.printf "****************\n";
+	r? $t15 =((unsigned int64*) ((unsigned int64)(&((@$proc->Peb)->ProcessParameters)->CommandLine ) + 0x008 ) )[0]
+	.printf "Image/Command: %mu\n", @$t15
+	r? $t15 =  (unsigned int64)(@$proc->UniqueProcessId)
+	.printf "PID: %d\n", @$t15
+	.printf "Driver associated to IRP-ed device: %mu\n", @$t8
+	!devstack @$t5
+	.printf "****************\n";
+}
+g
+$$
+$$ ** SCRIPT END **
+$$
