@@ -1,0 +1,21 @@
+$$
+$$ ARG1: Path to the internal script for this function
+$$
+$$ Compare the current LOGGER ID with the DiagTrack one.
+.if ( @$t19 == r13d){
+    $$ In this function, the guid entry is situated in [rbp+310h-290h]
+    r $t1 = poi(rbp+310h-290h);
+
+    $$ In this function, the event_descriptor is situated in [rbp+310h-2E0h]
+    r $t2 = poi(rbp+310h-2E0h);
+
+    $$ So, once we know that the provider is going to ask for buffers related
+    $$ with the telemetry, we jump to a part of the same function where the 
+    $$ event should be already written to the buffers, and therefore we can 
+    $$ print out the valuable information.
+    bp /1 nt!EtwpEventWriteFull+0x6A4 "$$><\"${$arg1}\""
+    gc;   
+}
+.else{
+    gc;
+}

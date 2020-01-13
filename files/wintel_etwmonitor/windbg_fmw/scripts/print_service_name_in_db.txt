@@ -1,0 +1,4 @@
+$$ This script will print all and each service of the database
+$$ bp4 services!ScGetServiceNameTagMapping+0xa9
+.printf "%mu\n", poi(@rbx+0x38)
+gc

@@ -1,0 +1,21 @@
+<div class="table-container">
+    <h2>{{title}}</h2>
+    <table>
+        <thead>
+            <tr align="center">
+                {% for column in columns %}
+                <th> {{ column }} </th>
+                {% endfor %}  
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr align="center">
+                {% for value in row %}
+                <td> {{ value }} </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

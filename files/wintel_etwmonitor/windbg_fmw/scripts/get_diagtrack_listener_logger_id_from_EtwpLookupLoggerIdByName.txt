@@ -1,0 +1,32 @@
+$$ ************************************************************************************************
+$$ IMPORTANT:                                                                                     *
+$$ ==========                                                                                     *
+$$ This scripts sets the value of the pseudo register T19 each time that the Diagtrack-Listener   *
+$$ registers. This value is used afterwards by the script that intercepts the call traces of the  *
+$$ providers related with telemetry.                                                              *
+$$                                                                                                *
+$$ ************************************************************************************************
+
+$$ RCX --> Pointer to ETW_SILODRIVERSTATE
+$$ RDX --> Pointer to the logger name (unicode) (+0x8)
+
+$$ Save the pointer to the logger name
+r $t0 = poi(@rdx+0x8);
+
+$$ Compare the string using alias
+as /mu ${/v:LOGG_NAME} $t0;
+.block{r $t10 = 0x0;r $t10 = $spat(@"${LOGG_NAME}", "Diagtrack-Listener")} 
+ad LOGG_NAME
+
+$$ IF it it's the Diagtrack-Listener
+.if($t10 == 1){
+    $$ Save the pointer to ETW_SILODRIVERSTATE
+    r $t1 = rcx;
+    
+    $$ The array is in offset 0x1b0 of ETW_SILODRIVERSTATE
+    r $t2 = $t1+0x1b0;
+
+    $$ Lets put a breakpoint just after the logger was created
+    bp /1 nt!EtwpStartTrace+0x45 "$$>a<\"${$arg1}\" \"${$arg2}\" \"${$arg3}\" \"${$arg4}\" \"${$arg5}\""
+};
+gc

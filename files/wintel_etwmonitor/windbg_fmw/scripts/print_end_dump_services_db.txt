@@ -1,0 +1,6 @@
+$$ Due to we are going to be inside a loop, we should execute 
+$$ this script when the function ScGetServiceNameTagMapping
+$$ is first executed.
+.printf "SERVICES_DB_DUMP_END\n"
+bd 3 4 5
+gc
