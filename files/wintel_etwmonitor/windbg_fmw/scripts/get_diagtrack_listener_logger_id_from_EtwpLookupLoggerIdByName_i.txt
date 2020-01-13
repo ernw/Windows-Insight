@@ -1,0 +1,35 @@
+$$ Now, the logger have just been created, so let's iterate the array of WMI_LOGGER_CONTEXTS *
+$$ Due to is a list of pointers of 64 buckets, we can just iterate them eassily.
+$$ This Scripts sets T19! and the same registers will be used in the following scripts.
+.for(r $t19 = 0;@$t19 < 0x40;r $t19 = @$t19+1){
+    $$ First, check if it's empty
+    .if ( poi(poi(@$t2)+@$t19*0x8)  == 1){
+        .continue
+    }
+    .else{
+        $$ Save the pointer to the WMI_LOGGER_CONTEXT in t4
+        r $t4 = poi(@$t2) + (@$t19*0x8);
+
+        $$ Save the STRING UNICODE object in t5
+        r $t5 = poi(@$t4)+0x98;
+
+        $$ Save the UNICODE buffer
+        r $t6 = poi(@$t5+0x8);
+        
+        $$ Create the alias of Unicode String
+        as /mu ${/v:LOGG_NAME_NEW} $t6;
+        .block{r $t10 = 0x0;r $t10 = $spat(@"${LOGG_NAME_NEW}", "Diagtrack-Listener")} 
+        ad LOGG_NAME_NEW
+
+        .if($t10 == 1){
+            .printf "Logger id of Diagtrack-Listener found!!: %N\n", @$t19
+            $$ Once we find this, we should create the breakpoint for the other script. 
+            $$ If the breakpoint is already created, doesn't matter, it will do anything.
+            $$ But is totally worthless to set the breakpoint before this happens.  
+            bp nt!EtwpEventWriteFull+0x3db "$$>a<\"${$arg1}\" \"${$arg2}\""
+            bp nt!EtwpWriteUserEvent+0x55a "$$>a<\"${$arg3}\" \"${$arg4}\""
+            .break
+        };
+    };
+};
+gc

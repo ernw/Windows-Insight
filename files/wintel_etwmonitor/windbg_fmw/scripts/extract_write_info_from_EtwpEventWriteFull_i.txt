@@ -1,0 +1,51 @@
+r $t11 = poi(rbp+310h-290h);
+r $t12 = poi(rbp+310h-2E0h);
+
+$$ Just to ensure that we are still in the same write
+.if ((@$t11 == @$t1) & (@$t12 == @$t2)){
+    .reload 
+    .printf "WRITE_INFO_START\n";
+    
+    $$ If the process in svchost, we want to have the service related to the actual thread.
+    $$ In order to do that, we should print the tag of the service related to the tread and
+    $$ afterwards comparate it again the dump of the services db.
+
+    .foreach (proc_name {!process -1 0 }) { aS ${/v:ProcessName} "${proc_name}"};
+    .block{r $t10 = 0x0;r $t10 = $spat("${ProcessName}", "*svchost.exe*")}
+    ad ProcessName;
+    .if ($t10 == 1){
+        .foreach /pS 5 (teb_addr {!thread @thread }) { r $t12 = teb_addr ;.break }
+        .printf "SERVICE_TAG_START\n"
+        .foreach /pS 1 (tag { dd @$t12+0x1720 L1 }) { .echo tag}
+        .printf "SERVICE_TAG_END\n"
+    }
+    
+    .printf "DATE_TIMESTAMP_START\n";
+    .echotime;
+    .printf "DATE_TIMESTAMP_END\n";
+    .printf "PROVIDER_GUID_START\n"
+    .printf "%N %N\n", poi(@$t1+0x18), poi(@$t1+0x18+0x8);
+    .printf "PROVIDER_GUID_END\n"
+    .printf "CALL_STACK_START\n";
+    kc;
+    .printf "CALL_STACK_END\n";
+    .printf "PROCESS_INFO_START\n";
+    !process -1 0;
+    .printf "PROCESS_INFO_END\n";
+    .printf "PEB_INFO_START\n";
+    !peb;
+    .printf "PEB_INFO_END\n";
+    .printf "EVENT_DESCRIPTOR_START\n";
+    dt nt!_EVENT_DESCRIPTOR @$t2;
+    .printf "EVENT_DESCRIPTOR_END\n";
+    .printf "EVENT_JSON_FORMAT_START\n";
+    as /x ${/v:LOGGER_ID} @$t19;
+    .block{!wmitrace.logdump ${LOGGER_ID} -t 1}
+    ad LOGGER_ID
+    .printf "EVENT_JSON_FORMAT_END\n";
+    .printf "WRITE_INFO_END\n";
+    gc;
+}
+.else{
+    gc;
+}

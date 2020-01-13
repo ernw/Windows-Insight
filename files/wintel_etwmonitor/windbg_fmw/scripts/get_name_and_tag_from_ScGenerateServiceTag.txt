@@ -1,0 +1,12 @@
+$$ Script that prints out the new service name and the corresponding tag
+$$ Print out the placeholder
+.printf "NEW_SERVICE_ADDED_START\n";
+$$ Print out the name
+.printf "%mu\n", poi(@rcx+0x38)
+$$ Print out the tag
+.printf "%N\n", eax
+$$ Print out the placeholder
+.printf "NEW_SERVICE_ADDED_END\n";
+$$ Continue
+gc
+
